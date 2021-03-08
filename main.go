@@ -1,8 +1,10 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"github.com/PuerkitoBio/goquery"
+	"github.com/go-telegram-bot-api/telegram-bot-api"
 	"log"
 	"net/http"
 	"os"
@@ -10,25 +12,109 @@ import (
 )
 
 func main() {
-	http.HandleFunc("/", checkAuth(http.HandlerFunc(scrapGoogle)))
-	port := os.Getenv("PORT")
-
-	if port == "" {
-		port = "8080"
-		log.Printf("Defaulting to port %s", port)
+	bot, err := tgbotapi.NewBotAPI(os.Getenv("BOT_TOKEN"))
+	if err != nil {
+		log.Panicf("Unable to start tgbot, %v", err)
 	}
 
-	log.Printf("Listening on port %s", port)
+	u := tgbotapi.NewUpdate(0)
+	u.Timeout = 60
 
-	if err := http.ListenAndServe(":"+port, nil); err != nil {
-		log.Fatal(err)
+	updates, err := bot.GetUpdatesChan(u)
+
+	for update := range updates {
+		if update.Message == nil { // ignore any non-Message Updates
+			continue
+		}
+
+		if strings.Contains(update.Message.Text, "/start") || strings.Contains(update.Message.Text, "/restart") {
+			msg := tgbotapi.NewMessage(update.Message.Chat.ID, "Welcome here! Please type in the google query and website you want to track. Please, separate with a comma. Currently we only support BY google locations.")
+			sentMessage, err := bot.Send(msg)
+			if err != nil {
+				log.Printf("Unable to send message to bot: %v", err)
+				continue
+			}
+			log.Printf("Message sent succesfully: %v", sentMessage)
+			continue
+		}
+
+		query, website, err := parseMessage(update.Message.Text)
+		if err != nil {
+			msg := tgbotapi.NewMessage(update.Message.Chat.ID, fmt.Sprintf("Unable to parse your message, %v.", err))
+			msg.ReplyToMessageID = update.Message.MessageID
+			msg.ParseMode = "Markdown"
+			sentMessage, err := bot.Send(msg)
+			if err != nil {
+				log.Printf("Unable to send message to bot: %v", err)
+				continue
+			}
+			log.Printf("Message sent succesfully: %v", sentMessage)
+			continue
+		}
+
+		langCode := update.Message.From.LanguageCode
+		countryCode := "by"
+
+		googleUrl := buildGoogleUrl(query, countryCode, langCode)
+		res, err := googleRequest(googleUrl)
+
+		if err != nil {
+			log.Printf("Unable to make google request, err: %v", err)
+			msg := tgbotapi.NewMessage(update.Message.Chat.ID, "Something went wrong when trying to make google request. Please, try again")
+			msg.ReplyToMessageID = update.Message.MessageID
+			sentMessage, err := bot.Send(msg)
+			if err != nil {
+				log.Printf("Unable to send message to bot: %v", err)
+				continue
+			}
+			log.Printf("Message sent succesfully: %v", sentMessage)
+			continue
+		}
+
+		result, err := googleResultParser(res, website)
+		if err != nil {
+			log.Printf("Unable to parse google response, err: %v", err)
+			msg := tgbotapi.NewMessage(update.Message.Chat.ID, "Something went wrong when trying to parse google response. Please, try again.")
+			msg.ReplyToMessageID = update.Message.MessageID
+			sentMessage, err := bot.Send(msg)
+			if err != nil {
+				log.Printf("Unable to send message to bot: %v", err)
+				continue
+			}
+			log.Printf("Message sent succesfully: %v", sentMessage)
+			continue
+		}
+
+		if result.ResultRank == 0 {
+			msg := tgbotapi.NewMessage(update.Message.Chat.ID, fmt.Sprintf("We haven't met your website in TOP-100 links in a google search."))
+			msg.ReplyToMessageID = update.Message.MessageID
+			sentMessage, err := bot.Send(msg)
+			if err != nil {
+				log.Printf("Unable to send message to bot: %v", err)
+				continue
+			}
+			log.Printf("Message sent succesfully: %v", sentMessage)
+			continue
+		}
+
+		msg := tgbotapi.NewMessage(update.Message.Chat.ID, fmt.Sprintf("We met your website as a TOP-%v link with the URL: %s.", result.ResultRank, result.ResultURL))
+		msg.ReplyToMessageID = update.Message.MessageID
+
+		sentMessage, err := bot.Send(msg)
+		if err != nil {
+			log.Printf("Unable to send message to bot: %v", err)
+			continue
+		}
+		log.Printf("Message sent succesfully: %v", sentMessage)
 	}
-
 }
 
-func checkAuth(next http.HandlerFunc) func(http.ResponseWriter, *http.Request) {
-	return func(w http.ResponseWriter, r *http.Request) {
-		next.ServeHTTP(w, r)
+func parseMessage(message string) (string, string, error) {
+	arr := strings.Split(message, ",")
+	if len(arr) != 2 {
+		return "", "", errors.New("please, use following format to track your query: \n**pizza in Minsk, dominos.com**")
+	} else {
+		return strings.Trim(arr[0], " "), strings.Trim(arr[1], " "), nil
 	}
 }
 
@@ -38,11 +124,12 @@ var googleDomains = map[string]string{
 	"ru":  "https://www.google.ru/search?q=",
 	"fr":  "https://www.google.fr/search?q=",
 	"":    "https://www.google.com/search?q=",
+	"by":  "https://www.google.com/search?q=",
 }
 
 type GoogleResult struct {
-	ResultRank  int
-	ResultURL   string
+	ResultRank int
+	ResultURL  string
 }
 
 func buildGoogleUrl(searchTerm string, countryCode string, languageCode string) string {
@@ -95,52 +182,4 @@ func googleResultParser(response *http.Response, siteName string) (GoogleResult,
 		}
 	}
 	return GoogleResult{}, err
-}
-
-func scrapGoogle(writer http.ResponseWriter, request *http.Request) {
-	urlQuery := request.URL.Query()
-
-	query, ok := urlQuery["query"]
-	if !ok || len(query[0]) < 1 {
-		log.Println("Unable to parse query URL param.")
-		return
-	}
-
-	languageParam, ok := urlQuery["language"]
-	var langCode string
-	if !ok || len(languageParam[0]) < 1 {
-		log.Println("Unable to parse language URL param.")
-		langCode=""
-	} else {
-		langCode = languageParam[0]
-	}
-
-
-	countryParam, ok := urlQuery["country"]
-	var countryCode string
-	if !ok || len(countryParam[0]) < 1 {
-		log.Println("Unable to parse country URL param.")
-		countryCode = ""
-	} else {
-		countryCode = countryParam[0]
-	}
-
-	site, ok := urlQuery["site"]
-	if !ok || len(site[0]) < 1 {
-		log.Println("Unable to parse site URL param.")
-		return
-	}
-
-	googleUrl := buildGoogleUrl(query[0], countryCode, langCode)
-	res, err := googleRequest(googleUrl)
-	if err != nil {
-		log.Printf("Unable to make google request, err: %v", err)
-	}
-	scrape, err := googleResultParser(res, site[0])
-	if err != nil {
-		log.Printf("Unable to parse google response, err: %v", err)
-	} else {
-		fmt.Fprintf(writer, "")
-	}
-
 }
