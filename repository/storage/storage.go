@@ -6,22 +6,22 @@ import (
 	"sync"
 )
 
-type Storage struct {
+type Repo struct {
 	configs []repository.UserConfig
 	mu      sync.RWMutex
 }
 
-func NewStorage() *Storage {
-	return &Storage{}
+func NewRepo() *Repo {
+	return &Repo{}
 }
 
-func (s *Storage) Insert(userConfig repository.UserConfig) {
+func (s *Repo) Insert(userConfig repository.UserConfig) {
 	s.mu.Lock()
 	s.configs = append(s.configs, userConfig)
 	s.mu.Unlock()
 }
 
-func (s *Storage) Remove(userID int64) {
+func (s *Repo) Remove(userID int64) {
 	id := s.FindID(userID)
 
 	if id == -1 {
@@ -33,7 +33,7 @@ func (s *Storage) Remove(userID int64) {
 	s.mu.Unlock()
 }
 
-func (s *Storage) FindID(userID int64) int {
+func (s *Repo) FindID(userID int64) int {
 	id := -1
 
 	for i, c := range s.configs {
@@ -46,7 +46,7 @@ func (s *Storage) FindID(userID int64) int {
 	return id
 }
 
-func (s *Storage) Get(userID int64) (*repository.UserConfig, error) {
+func (s *Repo) Get(userID int64) (*repository.UserConfig, error) {
 	id := s.FindID(userID)
 	if id == -1 {
 		return nil, errors.New("not found")
