@@ -7,11 +7,11 @@ import (
 	"gogoscrap/usecase/bot-service"
 	"gogoscrap/usecase/user-config"
 	"log"
+	"os"
 )
 
 func main() {
-	// bot, err := tgbotapi.NewBotAPI(os.Getenv("BOT_TOKEN"))
-	bot, err := tgbotapi.NewBotAPI("1631404549:AAFLshAk-_YxwwddjH9mzreU2CEpE9gPRp4")
+	bot, err := tgbotapi.NewBotAPI(os.Getenv("BOT_TOKEN"))
 	if err != nil {
 		log.Panicf("Unable to start tgbot, %v", err)
 	}
