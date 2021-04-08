@@ -35,11 +35,26 @@ func (u *UpdateHandler) HandleUpdate(update *tgbotapi.Update) error {
 		return err
 	}
 
-	if strings.Contains(update.Message.Text, "/starturlsearch") {
+	if update.Message.ReplyToMessage != nil && strings.Contains(update.Message.ReplyToMessage.Text, "Please, "+
+		"reply to this message") {
+		url := strings.Trim(update.Message.Text, " .,")
+
+		u.userService.Save(repository.UserConfig{
+			UserID:  update.Message.Chat.ID,
+			Website: url,
+		})
+
+		err := u.botService.SendMessage(update.Message.Chat.ID,
+			"I've started a search for URL. "+
+				"Now you can check queries without mentioning your website directly.", 0, "")
+		return err
+	}
+
+	if strings.Contains(update.Message.Text, "/urlsearch") {
 		url, err := parseCommand(update.Message.Text)
 		if err != nil {
-			err := u.botService.SendMessage(update.Message.Chat.ID, "I could not parse your message, please, "+
-				"use following format to start new search by website: \n**/starturlsearch dominos.by**.",
+			err := u.botService.SendMessage(update.Message.Chat.ID, "Please, reply to this message, "+
+				"with website URL you want to start search on.",
 				update.Message.MessageID, "Markdown")
 			return err
 		}
@@ -100,7 +115,7 @@ func (u *UpdateHandler) HandleUpdate(update *tgbotapi.Update) error {
 
 	err = u.botService.SendMessage(update.Message.Chat.ID,
 		fmt.Sprintf("I met your website on TOP-%v place in Google Search with the URL: %s.", urlRank.Rank,
-			urlRank.URL), update.Message.MessageID,"")
+			urlRank.URL), update.Message.MessageID, "")
 	return err
 }
 

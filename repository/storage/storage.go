@@ -29,7 +29,12 @@ func (s *Repo) Remove(userID int64) {
 	}
 
 	s.mu.Lock()
-	s.configs = append(s.configs[:id], s.configs[:id+1]...)
+	s.configs[id] = s.configs[len(s.configs)-1]
+	s.configs[len(s.configs)-1] = repository.UserConfig{
+		UserID:  0,
+		Website: "",
+	}
+	s.configs = s.configs[:len(s.configs)-1]
 	s.mu.Unlock()
 }
 

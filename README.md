@@ -6,7 +6,7 @@ This bot is doing scrapping routine for you. It finds your website rank in Googl
 
 Just send a message: `<query>, <website>`.
 
-Bot also supports long searches by one particular website. If you need to do a multiple searches, use the following command: `/starturlsearch <website>`.
+Bot also supports long searches by one particular website. If you need to do a multiple searches, use the following command: `/urlsearch <website>`.
 
 After that you will be able to just send a query, without mentioning your website everytime. Don't forget to stop this search by using `/stopurlsearch` command.
 
